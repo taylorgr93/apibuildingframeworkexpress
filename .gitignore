@@ -6,6 +6,10 @@ node_modules/
 .env.local
 .env.*.local
 
+# Claude Code
+.claude/
+CLAUDE.md
+
 # IDE and editors
 .idea/
 .vscode/
