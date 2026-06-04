@@ -13,8 +13,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Clean up debug console.log statements
 - Update dependencies to latest versions
-- Improve error handling consistency
-- Remove dead/commented code
+
+---
+
+## [1.0.43] – 2026-06-04
+
+### Added
+
+- New `helpers/sanitize.js` module with `safeObjectId` (safe ObjectId parsing) and `sanitizeError` (error serialization for API responses)
+- New `helpers/queryGenerators.js` module with extracted query builder functions (`GetGenericQueryId`, `GetGenericQueryBool`, `GetGenericQueryString`, `GetGenericComparisonQuery`, `GetDateComparisonQuery`, `GetGenericQueryNeid`, `GetGenericQueryNestring`, `GetGenericQueryPartial`, `CreateAndArr`, `objectIdWithTimestamp`)
+- New `helpers/assignments.js` module with extracted `Assign`, `UnAssign`, and `UnAssignIdToCollections` functions
+
+### Changed
+
+- **`index.js`** Major refactor: extracted inline helper functions to dedicated helper modules, reducing file from ~1200 lines to ~400 lines
+- **`listFilter`** and **`listFilter2`** unified to share query-building logic via `helpers/queryBuilders.js` and `helpers/queryGenerators.js`
+- **`create`**, **`updatePatch`**, **`createMultipleCore`**, **`updatePatchMany`** error handling now throws `ApiErrorData` instead of manually sending error responses, preserving compatibility with Express error middleware
+- Migrated remaining sync `fs` operations to async in legacy methods
+
+### Removed
+
+- Deleted `assing.js` (standalone legacy assignment module, replaced by `helpers/assignments.js`)
+- Deleted `indexold.js` (obsolete backup of index.js)
+- Removed dead/commented-out code and unused inline functions from `index.js`
+- Removed direct `mongodb` ObjectId import from `index.js` (now handled via `helpers/sanitize.js`)
+
+### Fixed
+
+- Restored `throw ApiErrorData` in catch blocks that had been incorrectly replaced with inline `res.status().send()` during refactor, ensuring Express error middleware chain works correctly
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "apibuildingframeworkexpress",
-  "version": "1.0.42",
+  "version": "1.0.43",
   "description": "Fast api building over Express.js",
   "main": "index.js",
   "scripts": {
@@ -29,7 +29,12 @@
     "file-upload",
     "rapid-development",
     "express-crud",
-    "mongo-wrapper"
+    "mongo-wrapper",
+    "schema-validation",
+    "soft-delete",
+    "aggregation",
+    "pagination",
+    "multer"
   ],
   "author": "Alberto Martinez, Gustavo Luna, Christopher Taylor Gonzalez, Jose Tello",
   "contributors": [
@@ -53,14 +58,17 @@
     "url": "https://github.com/AlbertoMOKnesys/apibuildingframeworkexpress/issues"
   },
   "homepage": "https://github.com/AlbertoMOKnesys/apibuildingframeworkexpress#readme",
+  "peerDependencies": {
+    "express": "^4.16.0",
+    "mongoclienteasywrapper": "^1.2.7"
+  },
   "dependencies": {
-    "axios": "^0.30.2",
-    "body-parser": "^1.20.4",
-    "express": "^4.22.1",
     "express-validator": "^7.3.1",
-    "mongoclienteasywrapper": "^1.2.7",
     "mongodb": "^4.17.2",
     "multer": "^2.0.2",
     "yup": "^1.7.1"
+  },
+  "devDependencies": {
+    "axios": "^0.30.2"
   }
 }
