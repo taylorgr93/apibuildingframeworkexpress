@@ -4,6 +4,7 @@ const fs = require("fs");
 const { sizeObj } = require("./common");
 const uploadfileDatos = require("./uploadFileData");
 const uploadfileDatosNew = require("./uploadFileDataNew");
+const { ApiErrorData } = require("./ApiError");
 const { safeObjectId, sanitizeError } = require("./helpers/sanitize");
 
 const {
@@ -182,12 +183,7 @@ const create = (params) => async (req, res, next) => {
     res.status(200).send(objResp);
   } catch (err) {
     console.error("Error in create:", err);
-    const objResp = {
-      status: "error",
-      message: ApiErrorFailDb || "db error",
-      data: sanitizeError(err),
-    };
-    res.status(400).send(objResp);
+    throw new ApiErrorData(400, ApiErrorFailDb || "db error", sanitizeError(err));
   }
 };
 
@@ -1007,12 +1003,7 @@ const updatePatch = (params) => async (req, res, next) => {
     res.status(200).send(objResp);
   } catch (err) {
     console.error("Error in updatePatch:", err);
-    const objResp = {
-      status: "error",
-      message: ApiErrorFailDb || "db error",
-      data: sanitizeError(err),
-    };
-    res.status(400).send(objResp);
+    throw new ApiErrorData(400, ApiErrorFailDb || "db error", sanitizeError(err));
   }
 };
 
@@ -1040,12 +1031,7 @@ const createMultipleCore = (params) => async (req, res, next) => {
     dbResponse = await MongoWraper.SavetoMongo(objToSave, collection, db);
   } catch (err) {
     console.error("Error in createMultipleCore:", err);
-    const objResp = {
-      status: "error",
-      message: ApiErrorFailDb || "db error",
-      data: sanitizeError(err),
-    };
-    return res.status(400).send(objResp);
+    throw new ApiErrorData(400, ApiErrorFailDb || "db error", sanitizeError(err));
   }
 
   Asignaciones = Asignaciones.map((e) => {
@@ -1132,12 +1118,7 @@ const updatePatchMany = (params) => async (req, res, next) => {
     );
   } catch (err) {
     console.error("Error in updatePatchMany:", err);
-    const objResp = {
-      status: "error",
-      message: ApiErrorFailDb || "db error",
-      data: sanitizeError(err),
-    };
-    return res.status(400).send(objResp);
+    throw new ApiErrorData(400, ApiErrorFailDb || "db error", sanitizeError(err));
   }
 
   const objResp = {
