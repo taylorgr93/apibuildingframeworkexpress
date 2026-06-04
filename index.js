@@ -1,13 +1,11 @@
 // index.js
 const fs = require("fs");
-const ObjectId = require("mongodb").ObjectId;
 
 const { sizeObj } = require("./common");
 const uploadfileDatos = require("./uploadFileData");
 const uploadfileDatosNew = require("./uploadFileDataNew");
-const { ApiErrorData } = require("./ApiError");
+const { safeObjectId, sanitizeError } = require("./helpers/sanitize");
 
-// Query builder helpers
 const {
   buildProjection,
   buildConcatenation,
@@ -24,259 +22,29 @@ const {
   buildComparisonFilters,
 } = require("./helpers/queryBuilders");
 
-const re = /[a-zA-Z0-9_-]+/;
-const operatorNotDeleted = { status: { $ne: "deleted" } };
-const Oculta = { oculta: { $ne: true } };
+const {
+  GetGenericQueryId,
+  GetGenericQueryBool,
+  GetGenericQueryString,
+  GetGenericComparisonQuery,
+  GetDateComparisonQuery,
+  GetGenericQueryNeid,
+  GetGenericQueryNestring,
+  GetGenericQueryPartial,
+  CreateAndArr,
+  objectIdWithTimestamp,
+} = require("./helpers/queryGenerators");
 
-// Validations
+const { Assign, UnAssign, UnAssignIdToCollections } = require("./helpers/assignments");
+
 const {
   validateSchemaExpress,
 } = require("./middlewares/schemaValidatorExpress");
 const { validateSchemaYup } = require("./middlewares/schemaValidatorYup");
 
-const Assign = async (body, db0, db1) => {
-  const collection = Object.keys(body);
-  console.log(collection);
-  //   {
-  //     "asistencias": ["61f801cdb6153a0034c123ec"]
-  //      collection:[id]
-  //   }
-
-  console.log({ [collection[1] + "_id"]: { $each: body[collection[1]] } });
-
-  const PushFirstCollection = await MongoWraper.UpdateMongoManyBy_idAddToSet(
-    // ["61f801cdb6153a0034c123ec"]
-    body[collection[0]],
-    {
-      [collection[1] + "_id"]: {
-        $each: body[collection[1]].map((e) => ObjectId(e)),
-      },
-    },
-    collection[0],
-    db0,
-  );
-  // console.log(PushFirstCollection);
-
-  const PushSecondCollection = await MongoWraper.UpdateMongoManyBy_idAddToSet(
-    body[collection[1]],
-    {
-      [collection[0] + "_id"]: {
-        $each: body[collection[0]].map((e) => ObjectId(e)),
-      },
-    },
-    collection[1],
-    db1,
-  );
-  // console.log(PushSecondCollection);
-
-  return;
-};
-
-const UnAssign = async (body, db0, db1) => {
-  const collection = Object.keys(body);
-  console.log(collection);
-  console.log({ [collection[1] + "_id"]: { $in: body[collection[1]] } });
-  const PullFirstCollection = await MongoWraper.UpdateMongoManyBy_idPull(
-    body[collection[0]],
-    {
-      [collection[1] + "_id"]: {
-        $in: body[collection[1]].map((e) => ObjectId(e)),
-      },
-    },
-    collection[0],
-    db0,
-  );
-  // console.log(PushFirstCollection);
-  const PullSecondCollection = await MongoWraper.UpdateMongoManyBy_idPull(
-    body[collection[1]],
-    {
-      [collection[0] + "_id"]: {
-        $in: body[collection[0]].map((e) => ObjectId(e)),
-      },
-    },
-    collection[1],
-    db1,
-  );
-
-  // console.log(PushSecondCollection);
-
-  return;
-};
-
-const UnAssignIdToCollections = async (collection, field, id, db) => {
-  // console.log("col", collection);
-  // console.log("fie", field);
-  // console.log("id", id);
-  const PullCollection =
-    await MongoWraper.UpdateMongoManyPullIDToCollectionPull(
-      { [field + "_id"]: ObjectId(id) },
-      collection,
-      db,
-    );
-
-  return;
-};
-
-function objectIdWithTimestamp(timestamp) {
-  /* Convert string date to Date object (otherwise assume timestamp is a date) */
-  if (typeof timestamp == "string") {
-    timestamp = new Date(timestamp);
-  }
-
-  /* Convert date object to hex seconds since Unix epoch */
-  var hexSeconds = Math.floor(timestamp / 1000).toString(16);
-
-  /* Create an ObjectId with that hex timestamp */
-  var constructedObjectId = ObjectId(hexSeconds + "0000000000000000");
-
-  return constructedObjectId;
-}
-
-const CreateAndArr = (req) => {
-  const NonTextFields = ["page", "limit", "initialDate", "finalDate"];
-
-  const andArr = Object.keys(req.query)
-    .filter((prop) => !NonTextFields.includes(prop))
-    .map((prop, index) =>
-      req.query[prop] == { [prop]: { $regex: "", $options: "si" } }
-        ? []
-        : req.query[prop].split(" ").map((word) => {
-            return { [prop]: { $regex: word, $options: "si" } };
-          }),
-    );
-
-  return andArr;
-};
-
-const GetGenericQueryId = (Query) => {
-  // const ReqQuery = { Search: req.query.ObrasId };
-  if (Array.isArray(Query.Search)) {
-    const QueriesArrProp = Query.Search.reduce((acum, ArrSearch) => {
-      const QuerySpecific = [{ [Query.Property]: ObjectId(ArrSearch) }];
-      return [...acum, ...QuerySpecific];
-    }, []);
-    //console.log(QueriesArrProp);
-
-    //[{ $or: [...QueriesArrProp] }];
-    return { $or: [...QueriesArrProp] };
-  } else {
-    const QuerySpecific = [{ [Query.Property]: ObjectId(Query.Search) }];
-    return { $or: [...QuerySpecific] };
-  }
-};
-
-const GetGenericQueryBool = (Query) => {
-  // const ReqQuery = { Search: req.query.ObrasId };
-  if (Array.isArray(Query.Search)) {
-    const QueriesArrProp = Query.Search.reduce((acum, ArrSearch) => {
-      const QuerySpecific = [{ [Query.Property]: ArrSearch == "true" }];
-      return [...acum, ...QuerySpecific];
-    }, []);
-    //console.log(QueriesArrProp);
-
-    //[{ $or: [...QueriesArrProp] }];
-    return { $or: [...QueriesArrProp] };
-  } else {
-    const QuerySpecific = [{ [Query.Property]: Query.Search == "true" }];
-    return { $or: [...QuerySpecific] };
-  }
-};
-
-const GetGenericQueryString = (Query) => {
-  // const ReqQuery = { Search: req.query.ObrasId };
-  if (Array.isArray(Query.Search)) {
-    const QueriesArrProp = Query.Search.reduce((acum, ArrSearch) => {
-      const QuerySpecific = [{ [Query.Property]: ArrSearch }];
-      return [...acum, ...QuerySpecific];
-    }, []);
-    //console.log(QueriesArrProp);
-
-    //[{ $or: [...QueriesArrProp] }];
-    return { $or: [...QueriesArrProp] };
-  } else {
-    const QuerySpecific = [{ [Query.Property]: Query.Search }];
-    return { $or: [...QuerySpecific] };
-  }
-};
-
-const GetGenericComparisonQuery = (Query, operator) => {
-  // const ReqQuery = { Search: req.query.ObrasId };
-  if (Array.isArray(Query.Search)) {
-    const QueriesArrProp = Query.Search.reduce((acum, ArrSearch) => {
-      const QuerySpecific = [{ [Query.Property]: { [operator]: ArrSearch } }];
-      return [...acum, ...QuerySpecific];
-    }, []);
-    //console.log(QueriesArrProp);
-
-    //[{ $or: [...QueriesArrProp] }];
-    return QueriesArrProp;
-  } else {
-    const QuerySpecific = { [Query.Property]: { [operator]: Query.Search } };
-    return QuerySpecific;
-  }
-};
-
-const GetDateComparisonQuery = (Query, operator) => {
-  // const ReqQuery = { Search: req.query.ObrasId };
-  // console.log(Query.Search)
-  if (Array.isArray(Query.Search)) {
-    const QueriesArrProp = Query.Search.reduce((acum, ArrSearch) => {
-      const QuerySpecific = [
-        { [Query.Property]: { [operator]: new Date(ArrSearch) } },
-      ];
-      return [...acum, ...QuerySpecific];
-    }, []);
-    //console.log(QueriesArrProp);
-
-    //[{ $or: [...QueriesArrProp] }];
-    return QueriesArrProp;
-  } else {
-    // console.log("queryy",Query.Search)
-    const QuerySpecific = {
-      [Query.Property]: { [operator]: new Date(Query.Search) },
-    };
-    return QuerySpecific;
-  }
-};
-
-const GetGenericQueryNeid = (Query) => {
-  // const ReqQuery = { Search: req.query.ObrasId };
-  if (Array.isArray(Query.Search)) {
-    const QueriesArrProp = Query.Search.map((ArrSearch) => {
-      return { [Query.Property]: { $ne: ObjectId(ArrSearch) } };
-    });
-    //console.log(QueriesArrProp);
-
-    //[{ $or: [...QueriesArrProp] }];
-    return { $and: [...QueriesArrProp] };
-  } else {
-    return { [Query.Property]: { $ne: ObjectId(Query.Search) } };
-  }
-};
-
-const GetGenericQueryNestring = (Query) => {
-  // const ReqQuery = { Search: req.query.ObrasId };
-  if (Array.isArray(Query.Search)) {
-    const QueriesArrProp = Query.Search.map((ArrSearch) => {
-      return { [Query.Property]: { $ne: ArrSearch } };
-    });
-    //console.log(QueriesArrProp);
-
-    //[{ $or: [...QueriesArrProp] }];
-    return { $and: [...QueriesArrProp] };
-  } else {
-    return { [Query.Property]: { $ne: Query.Search } };
-  }
-};
-
-const GetGenericQueryPartial = (Query) => {
-  //const NonTextFields = ["page", "limit", "initialDate", "finalDate"];
-  const fullAndArray = Query.Search.split(" ").map((word) => {
-    return { [Query.Property]: { $regex: word, $options: "si" } };
-  });
-
-  return { $and: fullAndArray };
-};
+const re = /[a-zA-Z0-9_-]+/;
+const operatorNotDeleted = { status: { $ne: "deleted" } };
+const Oculta = { oculta: { $ne: true } };
 
 // -------- Refactored methods --------------------
 
@@ -347,7 +115,7 @@ const create = (params) => async (req, res, next) => {
         [collection]: [dbResponse.insertedId],
       }));
 
-      const promisesAssign = asignacionesConId.map((e) => Assign(e, db, db));
+      const promisesAssign = asignacionesConId.map((e) => Assign(MongoWraper, e, db, db));
       await Promise.allSettled(promisesAssign); // Changed to allSettled to avoid failing if one assignment fails
     }
 
@@ -357,9 +125,7 @@ const create = (params) => async (req, res, next) => {
       const dirDestino = `${PathBaseFile}/${db}/${collection}/${dbResponse.insertedId}/`;
 
       // Create directory structure if it doesn't exist
-      if (!fs.existsSync(dirDestino)) {
-        await fs.promises.mkdir(dirDestino, { recursive: true });
-      }
+      await fs.promises.mkdir(dirDestino, { recursive: true });
 
       const fotofile = req.files.file[0];
       const pathDestino = dirDestino + fotofile.filename;
@@ -416,7 +182,12 @@ const create = (params) => async (req, res, next) => {
     res.status(200).send(objResp);
   } catch (err) {
     console.error("Error in create:", err);
-    throw new ApiErrorData(400, ApiErrorFailDb || "db error", err);
+    const objResp = {
+      status: "error",
+      message: ApiErrorFailDb || "db error",
+      data: sanitizeError(err),
+    };
+    res.status(400).send(objResp);
   }
 };
 
@@ -501,7 +272,7 @@ const distinct = (params) => async (req, res, next) => {
     const objResp = {
       status: "error",
       message: "db error",
-      data: err,
+      data: sanitizeError(err),
     };
     res.status(500).send(objResp);
   }
@@ -690,7 +461,7 @@ const list = (params) => async (req, res, next) => {
     const objResp = {
       status: "error",
       message: "db error",
-      data: err,
+      data: sanitizeError(err),
     };
     res.status(400).send(objResp);
   }
@@ -758,14 +529,13 @@ const list = (params) => async (req, res, next) => {
  * // Date range filter
  * // GET /users/filter?initialDate=2024-01-01&finalDate=2024-12-31&propertydatefilter=createdAt
  */
-const listFilter = (params) => async (req, res, next) => {
+const listFilterCore = (params, extended) => async (req, res, next) => {
   params = params || {};
   const { Database, Collection, Middleware } = params;
 
   const collection = Collection || req.originalUrl.match(re)[0];
   const db = Database || req.database;
 
-  // Support both GET (query params) and POST (body) requests
   if (req.method === "POST") {
     req.query = req.body;
   }
@@ -773,12 +543,10 @@ const listFilter = (params) => async (req, res, next) => {
   const page = parseInt(req.query.page) || 0;
   const limit = parseInt(req.query.limit);
 
-  // Use helper functions
   const projectMongo = buildProjection(req.query);
   const { concatName, concatMongo } = buildConcatenation(req.query);
   const sortMongo = buildSortConfig(req.query);
 
-  // Pass query functions as dependency injection
   const queryFunctions = {
     GetGenericQueryId,
     GetGenericQueryString,
@@ -789,15 +557,37 @@ const listFilter = (params) => async (req, res, next) => {
   };
 
   const filters = buildAllFilters(req.query, queryFunctions);
-  const lookupBuilder = buildLookupStages(req.query);
   const propertyDateFilter = req.query.propertydatefilter || "datetime";
   const queryDate = buildDateRangeQuery(req.query, propertyDateFilter);
   const afterMatch = buildAfterMatchStage(req.query, queryFunctions);
 
-  // Check if any filters are active
-  const hasFilters = hasActiveFilters(filters, queryDate);
+  let comparisonAndArray = [];
+  let hasFilters;
+  let lookupBuilder;
 
-  // Build main $match stage
+  if (extended) {
+    const comparisonFunctions = {
+      GetGenericComparisonQuery,
+      GetDateComparisonQuery,
+    };
+    const comparisonFilters = buildComparisonFilters(req.query, comparisonFunctions);
+    lookupBuilder = buildLookupStagesExtended(req.query);
+    hasFilters = hasActiveFiltersExtended(filters, comparisonFilters, queryDate);
+    comparisonAndArray = [
+      ...comparisonFilters.gtQueries,
+      ...comparisonFilters.gteQueries,
+      ...comparisonFilters.ltQueries,
+      ...comparisonFilters.lteQueries,
+      ...comparisonFilters.gtDateQueries,
+      ...comparisonFilters.gteDateQueries,
+      ...comparisonFilters.ltDateQueries,
+      ...comparisonFilters.lteDateQueries,
+    ];
+  } else {
+    lookupBuilder = buildLookupStages(req.query);
+    hasFilters = hasActiveFilters(filters, queryDate);
+  }
+
   const mainMatch = {
     $match: {
       ...(req.query.hasOwnProperty("showdeleted") ? {} : operatorNotDeleted),
@@ -811,14 +601,9 @@ const listFilter = (params) => async (req, res, next) => {
               ...filters.idQueries,
               ...filters.neidQueries,
               ...filters.nestringQueries,
+              ...comparisonAndArray,
               ...(filters.partialBuilders.length > 0
-                ? [
-                    {
-                      $or: filters.partialBuilders.map((e) =>
-                        GetGenericQueryPartial(e),
-                      ),
-                    },
-                  ]
+                ? [{ $or: filters.partialBuilders.map((e) => GetGenericQueryPartial(e)) }]
                 : []),
               ...queryDate,
             ],
@@ -827,7 +612,6 @@ const listFilter = (params) => async (req, res, next) => {
     },
   };
 
-  // Build aggregation pipeline
   const aggregationPipeline = [
     ...(concatMongo
       ? [{ $addFields: { [concatName]: { $concat: concatMongo } } }]
@@ -867,227 +651,34 @@ const listFilter = (params) => async (req, res, next) => {
     const objResp = {
       status: "error",
       message: "db error",
-      data: err,
+      data: sanitizeError(err),
     };
     res.status(500).send(objResp);
   }
 };
 
 /**
- * Advanced filtered list with extended comparison operators and flexible lookups.
- *
- * Extends listFilter with:
- * - Integer comparison operators (_igt, _igte, _ilt, _ilte)
- * - Date comparison operators (_dgt, _dgte, _dlt, _dlte)
- * - Flexible lookup configuration (specify which field to use for join)
+ * Advanced filtered list with aggregation pipeline support.
  *
  * @param {Object} params - Configuration options
  * @param {string} [params.Database] - Database name (defaults to req.database)
  * @param {string} [params.Collection] - Collection name (defaults to URL path)
  * @param {boolean} [params.Middleware] - If true, passes response to next() instead of sending
- *
  * @returns {Function} Express middleware function
- *
- * @example
- * // Basic usage
- * app.get('/users/filter2', apiBuilder.listFilter2());
- *
- * @example
- * // Integer comparisons
- * // GET /users/filter2?age_igtei=18      -> age > 18
- * // GET /users/filter2?age_igtei=18      -> age >= 18
- * // GET /users/filter2?age_ilti=65       -> age < 65
- * // GET /users/filter2?age_iltei=65      -> age <= 65
- *
- * @example
- * // Date comparisons
- * // GET /users/filter2?createdAt_dgtd=2024-01-01    -> createdAt > date
- * // GET /users/filter2?createdAt_dgted=2024-01-01   -> createdAt >= date
- * // GET /users/filter2?createdAt_dltd=2024-12-31   -> createdAt < date
- * // GET /users/filter2?createdAt_dlted=2024-12-31  -> createdAt <= date
- *
- * @example
- * // Flexible lookup (specify which field to join on)
- * // GET /users/filter2?roles_lookup=assignedRole_id
- * // Joins roles collection using assignedRole_id field instead of default roles_id
  */
-const listFilter2 = (params) => async (req, res, next) => {
-  params = params || {};
-  const { Database, Collection, Middleware } = params;
+const listFilter = (params) => listFilterCore(params, false);
 
-  // Resolve collection and database from params or request context
-  const collection = Collection || req.originalUrl.match(re)[0];
-  const db = Database || req.database;
-
-  // Support both GET (query params) and POST (body) requests
-  if (req.method === "POST") {
-    req.query = req.body;
-  }
-
-  // DEBUG: console.log("path:", req.originalUrl);
-  // DEBUG: console.log("collection:", collection);
-
-  // Extract pagination params
-  const page = parseInt(req.query.page) || 0;
-  const limit = parseInt(req.query.limit);
-
-  // Use helper functions for common operations
-  const projectMongo = buildProjection(req.query);
-  const { concatName, concatMongo } = buildConcatenation(req.query);
-  const sortMongo = buildSortConfig(req.query);
-  // DEBUG: console.log("Sort config:", sortMongo);
-
-  // Pass query functions as dependency injection
-  const queryFunctions = {
-    GetGenericQueryId,
-    GetGenericQueryString,
-    GetGenericQueryBool,
-    GetGenericQueryNeid,
-    GetGenericQueryNestring,
-    GetGenericQueryPartial,
-  };
-
-  // Pass comparison functions as dependency injection
-  const comparisonFunctions = {
-    GetGenericComparisonQuery,
-    GetDateComparisonQuery,
-  };
-
-  // Build all filter queries from request params
-  const filters = buildAllFilters(req.query, queryFunctions);
-
-  // Build comparison filters (integers and dates)
-  // This is the main difference from listFilter
-  const comparisonFilters = buildComparisonFilters(
-    req.query,
-    comparisonFunctions,
-  );
-
-  // Use extended lookup builder that allows specifying the join field
-  // Example: ?roles_lookup=customField_id joins on customField_id instead of roles_id
-  const lookupBuilder = buildLookupStagesExtended(req.query);
-
-  // Build date range filter if provided
-  const propertyDateFilter = req.query.propertydatefilter || "datetime";
-  const queryDate = buildDateRangeQuery(req.query, propertyDateFilter);
-
-  // Build post-lookup filters
-  const afterMatch = buildAfterMatchStage(req.query, queryFunctions);
-
-  // Check if any filters are active (including comparison filters)
-  const hasFilters = hasActiveFiltersExtended(
-    filters,
-    comparisonFilters,
-    queryDate,
-  );
-
-  // Build main $match stage with all filters including comparisons
-  const mainMatch = {
-    $match: {
-      // Exclude soft-deleted documents unless showdeleted is set
-      ...(req.query.hasOwnProperty("showdeleted") ? {} : operatorNotDeleted),
-      // Exclude hidden documents unless showoculta is set
-      ...(req.query.hasOwnProperty("showoculta") ? {} : Oculta),
-      // Add all filters if any exist
-      ...(hasFilters
-        ? {
-            $and: [
-              // Basic filters
-              ...filters.stringQueries,
-              ...filters.integerQueries,
-              ...filters.boolQueries,
-              ...filters.idQueries,
-              ...filters.neidQueries,
-              ...filters.nestringQueries,
-              // Integer comparison filters
-              ...comparisonFilters.gtQueries,
-              ...comparisonFilters.gteQueries,
-              ...comparisonFilters.ltQueries,
-              ...comparisonFilters.lteQueries,
-              // Date comparison filters
-              ...comparisonFilters.gtDateQueries,
-              ...comparisonFilters.gteDateQueries,
-              ...comparisonFilters.ltDateQueries,
-              ...comparisonFilters.lteDateQueries,
-              // Partial/regex match filters
-              ...(filters.partialBuilders.length > 0
-                ? [
-                    {
-                      $or: filters.partialBuilders.map((e) =>
-                        GetGenericQueryPartial(e),
-                      ),
-                    },
-                  ]
-                : []),
-              // Date range filter
-              ...queryDate,
-            ],
-          }
-        : {}),
-    },
-  };
-
-  // Construct the complete aggregation pipeline
-  const aggregationPipeline = [
-    // Add computed concatenated fields if configured
-    ...(concatMongo
-      ? [{ $addFields: { [concatName]: { $concat: concatMongo } } }]
-      : []),
-    // Main filter stage
-    mainMatch,
-    // Lookup stages for population (using extended builder)
-    ...lookupBuilder,
-    // Post-lookup filter stage
-    afterMatch,
-    // Field projection if configured
-    ...(Object.keys(projectMongo).length > 0
-      ? [{ $project: projectMongo }]
-      : []),
-    // Sorting (defaults to newest first by _id)
-    { $sort: Object.keys(sortMongo).length > 0 ? sortMongo : { _id: -1 } },
-    // Pagination with metadata (only if limit is set)
-    ...(limit > 0 ? [buildFacetStage(page, limit)] : []),
-  ];
-
-  // DEBUG: console.log("Aggregation pipeline:", JSON.stringify(aggregationPipeline, null, 2));
-
-  try {
-    // DEBUG: console.log("page:", page, "limit:", limit, "collection:", collection);
-
-    const dbResponse = await MongoWraper.AggregationMongo(
-      aggregationPipeline,
-      collection,
-      db,
-    );
-
-    // DEBUG: console.log("DB Response:", dbResponse);
-
-    // Format response based on whether pagination was used
-    const objResp = {
-      status: "ok",
-      message: "completed",
-      data: formatPaginatedResponse(dbResponse, limit, page),
-    };
-
-    // Middleware mode: attach response to request and continue chain
-    if (Middleware) {
-      req.MidResponse = objResp;
-      return next();
-    }
-
-    res.status(200).send(objResp);
-  } catch (err) {
-    // Log error for debugging purposes
-    console.error("Error in listFilter2:", err);
-
-    const objResp = {
-      status: "error",
-      message: "db error",
-      data: err,
-    };
-    res.status(500).send(objResp);
-  }
-};
+/**
+ * Advanced filtered list with extended comparison operators and flexible lookups.
+ * Extends listFilter with integer/date comparison operators and flexible lookup configuration.
+ *
+ * @param {Object} params - Configuration options
+ * @param {string} [params.Database] - Database name (defaults to req.database)
+ * @param {string} [params.Collection] - Collection name (defaults to URL path)
+ * @param {boolean} [params.Middleware] - If true, passes response to next() instead of sending
+ * @returns {Function} Express middleware function
+ */
+const listFilter2 = (params) => listFilterCore(params, true);
 
 /**
  * Retrieves a single document by its _id with automatic population of related documents.
@@ -1161,7 +752,7 @@ const listOne = (params) => async (req, res, next) => {
     const objResp = {
       status: "error",
       message: "db error",
-      data: err,
+      data: sanitizeError(err),
     };
     res.status(400).send(objResp);
   }
@@ -1238,6 +829,7 @@ const remove = (params) => async (req, res, next) => {
     if (desasignaciones.length > 0) {
       const promisesUnAssign = desasignaciones.map((collectionDelete) =>
         UnAssignIdToCollections(
+          MongoWraper,
           collectionDelete,
           collection,
           req.params._id,
@@ -1271,7 +863,7 @@ const remove = (params) => async (req, res, next) => {
     const objResp = {
       status: "error",
       message: "db error",
-      data: err,
+      data: sanitizeError(err),
     };
     res.status(400).send(objResp);
   }
@@ -1347,7 +939,7 @@ const updatePatch = (params) => async (req, res, next) => {
         [collection]: [req.params._id],
       }));
 
-      const promisesAssign = asignacionesConId.map((e) => Assign(e, db, db));
+      const promisesAssign = asignacionesConId.map((e) => Assign(MongoWraper, e, db, db));
       await Promise.allSettled(promisesAssign);
     }
 
@@ -1360,7 +952,7 @@ const updatePatch = (params) => async (req, res, next) => {
       }));
 
       const promisesUnAssign = desasignacionesConId.map((e) =>
-        UnAssign(e, db, db),
+        UnAssign(MongoWraper, e, db, db),
       );
       await Promise.allSettled(promisesUnAssign);
     }
@@ -1376,9 +968,7 @@ const updatePatch = (params) => async (req, res, next) => {
       const dirDestino = `${PathBaseFile}/${db}/${collection}/${req.params._id}/`;
 
       // Create directory structure if it doesn't exist
-      if (!fs.existsSync(dirDestino)) {
-        await fs.promises.mkdir(dirDestino, { recursive: true });
-      }
+      await fs.promises.mkdir(dirDestino, { recursive: true });
 
       const fotofile = req.files.file[0];
       const pathDestino = dirDestino + fotofile.filename;
@@ -1416,11 +1006,13 @@ const updatePatch = (params) => async (req, res, next) => {
 
     res.status(200).send(objResp);
   } catch (err) {
-    // Log error for debugging purposes
     console.error("Error in updatePatch:", err);
-
-    // Throw ApiError to be handled by error middleware
-    throw new ApiErrorData(400, ApiErrorFailDb || "db error", err);
+    const objResp = {
+      status: "error",
+      message: ApiErrorFailDb || "db error",
+      data: sanitizeError(err),
+    };
+    res.status(400).send(objResp);
   }
 };
 
@@ -1439,72 +1031,43 @@ const createMultipleCore = (params) => async (req, res, next) => {
   const collection = Collection ? Collection : req.originalUrl.match(re)[0];
   const db = Database ? Database : req.database;
 
-  // const collection = Collection ? Collection : req.originalUrl.match(re)[0];
-  // const Db = Database ? Database : req.database;
+  const { _Assign, ...bodyData } = req.body;
+  const objToSave = { ...bodyData, datetime: new Date() };
+  let Asignaciones = _Assign || [];
 
-  //codigo nuevo para asignar al momento de insertar
-
-  const objToSave = { ...req.body, datetime: new Date() };
-  console.log(objToSave);
-  //Guadando asignaciones para que no se inserten junto con el body
-  let Asignaciones = req.body.hasOwnProperty("_Assign") ? req.body._Assign : [];
-
-  delete req.body._Assign;
-
-  //Insertando en DB\
-  console.log("llego hasta acaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  console.log(req.body);
   let dbResponse;
   try {
     dbResponse = await MongoWraper.SavetoMongo(objToSave, collection, db);
   } catch (err) {
-    console.log(err);
-
-    throw new ApiErrorData(
-      400,
-      ApiErrorFailDb ? ApiErrorFailDb : "db error",
-      err,
-    );
+    console.error("Error in createMultipleCore:", err);
+    const objResp = {
+      status: "error",
+      message: ApiErrorFailDb || "db error",
+      data: sanitizeError(err),
+    };
+    return res.status(400).send(objResp);
   }
 
-  //codigo nuevo para asignar al momento de insertar
-  //agregando id de lo que acabamos de insertar a la asignacion
-  // "_Assign": [
-  //   {
-  //     "asistencias": ["61f801cdb6153a0034c123ec"]
-  //   }
-  // ]
   Asignaciones = Asignaciones.map((e) => {
-    //   {
-    //     "asistencias": ["61f801cdb6153a0034c123ec"]
-    // collection:[id]
-    //   }
     return { ...e, [collection]: [dbResponse.insertedId] };
   });
-  //
 
-  const PromisesAssign = Asignaciones.map((e) => Assign(e, db, db));
+  const PromisesAssign = Asignaciones.map((e) => Assign(MongoWraper, e, db, db));
 
   await Promise.all(PromisesAssign);
 
-  //Si venia un archivo y paso por todo lo movemos a su lugar definitivo
   if (req.files) {
-    // const dirDestino = `${__basedir}/files/${Db}/${collection}/${dbResponse.insertedId}/`;
     const dirDestino = `${PathBaseFile}/${db}/${collection}/${dbResponse.insertedId}/`;
-    if (!fs.existsSync(dirDestino)) {
-      fs.mkdirSync(dirDestino, { recursive: true });
-    }
+    await fs.promises.mkdir(dirDestino, { recursive: true });
     const fotofile = req.files.file[0];
     const pathDestino = dirDestino + fotofile.filename;
-    fs.renameSync(fotofile.path, pathDestino);
-    //actualizando el directorio al que se movio
+    await fs.promises.rename(fotofile.path, pathDestino);
 
-    // const foto = `${ipServer}/api/v1/rules/fs/files/${Db}/${collection}/${dbResponse.insertedId}/${fotofile.filename}`;
     const foto = `${URL}/${db}/${collection}/${dbResponse.insertedId}/${fotofile.filename}`;
     await MongoWraper.UpdateMongoBy_id(
       dbResponse.insertedId,
       {
-        foto: foto,
+        foto,
         fotopath: pathDestino,
       },
       collection,
@@ -1537,7 +1100,7 @@ const createMultipleCore = (params) => async (req, res, next) => {
     req.MidResponse = objResp;
     return next();
   }
-  return objResp;
+  res.status(200).send(objResp);
 };
 
 const updatePatchMany = (params) => async (req, res, next) => {
@@ -1568,13 +1131,13 @@ const updatePatchMany = (params) => async (req, res, next) => {
       db,
     );
   } catch (err) {
-    console.log(err);
-
-    throw new ApiErrorData(
-      400,
-      ApiErrorFailDb ? ApiErrorFailDb : "db error",
-      err,
-    );
+    console.error("Error in updatePatchMany:", err);
+    const objResp = {
+      status: "error",
+      message: ApiErrorFailDb || "db error",
+      data: sanitizeError(err),
+    };
+    return res.status(400).send(objResp);
   }
 
   const objResp = {
@@ -1588,30 +1151,19 @@ const updatePatchMany = (params) => async (req, res, next) => {
   }
   res.status(200).send(objResp);
 };
-
-// Agrega icono
 const docUpload = (params) => async (req, res, next) => {
   params = params ? params : {};
   const { Database, Collection, PathBaseFile, URL, Middleware } = params;
   const collection = Collection ? Collection : req.originalUrl.match(re)[0];
   const db = Database ? Database : req.database;
-  //   const collection = req.originalUrl.match(re)[0];
-  console.log("adding picture to generic with picture... " + collection);
-
-  //   const dir = `${__basedir}/files/${db}/${collection}/${req.params._id}/`;
-  const dir = `${PathBaseFile}/${db}/${collection}/${req.params._id}/`;
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  req.folder = dir;
 
   try {
-    console.log("debug:", "print before upload");
+    const dir = `${PathBaseFile}/${db}/${collection}/${req.params._id}/`;
+    await fs.promises.mkdir(dir, { recursive: true });
+    req.folder = dir;
 
     await uploadfileDatos(req, res);
-    console.log("debug:", "print after upload");
     if (req.files === undefined) {
-      /// en caso de que no se este subiendo archivos del modo adecuado
       let objResp = {
         status: "error",
         message: "Please upload a file!",
@@ -1619,49 +1171,26 @@ const docUpload = (params) => async (req, res, next) => {
       };
       return res.status(400).send(objResp);
     } else {
-      /// parseando datos que vengan como json dentro de form-data    ############################################
-      console.log("debug:", req.params._id);
-      console.log("debug:", req.body.data);
-
-      console.log("debug:", "adding url to body");
       const data = JSON.parse(req.body.data);
-      console.log(data.name);
-      //   const url = `${ipServer}/api/v1/rules/fs/files/${db}/${collection}/${req.params._id}/${req.files.file[0].filename}`;
       const url = `${URL}/${db}/${collection}/${req.params._id}/${req.files.file[0].filename}`;
-      console.log("debug:", url);
-      console.log("debug:", req.files.file[0].path);
       const newProperty = {
         [data.name]: {
           url: url,
           path: req.files.file[0].path,
         },
       };
-      console.log("debug:", "updating on mongo");
-      console.log("debug:", req.params._id);
-      console.log("debug:", newProperty);
-      console.log("debug:", collection);
-      console.log("debug:", db);
-      /// actualizar nuevos datos de rek y la nueva carpeta de trabajadores    ############################################
+
       await MongoWraper.UpdateMongoBy_id(
         req.params._id,
         newProperty,
         collection,
         db,
-      ).catch((err) => {
-        const objResp = {
-          status: "error",
-          message: "db error",
-          data: err,
-        };
-        res.status(400).send(objResp);
-      });
-
-      console.log("debug:", "buscando el ID colocado para finalizar");
+      );
 
       const dbFind = await MongoWraper.FindIDOne(
         req.params._id,
         collection,
-        req.database,
+        db,
       );
 
       const objResp = {
@@ -1676,11 +1205,10 @@ const docUpload = (params) => async (req, res, next) => {
       res.status(200).send(objResp);
     }
   } catch (err) {
-    /// en aso de que ocurra algun error en la subida de los archivos   ############################################
-    console.log(err);
+    console.error("Error in file operation:", err);
     const objResp = {
       status: "error",
-      data: err,
+      data: sanitizeError(err),
     };
     if (err.code == "LIMIT_FILE_SIZE") {
       objResp.message = "File size cannot be larger than 50MB!";
@@ -1702,14 +1230,10 @@ const docRemove = (params) => async (req, res, next) => {
   try {
     const dbFind = await MongoWraper.FindIDOne(req.params._id, collection, db);
 
-    console.log("aquivoy");
-    console.log(dbFind[req.body.name]);
-
     if (dbFind[req.body.name]) {
       const propertyToRemove = dbFind[req.body.name];
 
-      /// borrando archivo del viejo registro
-      fs.unlinkSync(propertyToRemove.path);
+      await fs.promises.unlink(propertyToRemove.path).catch(() => {});
 
       await MongoWraper.UpdateMongoBy_idRemoveProperty(
         req.params._id,
@@ -1746,76 +1270,10 @@ const docRemove = (params) => async (req, res, next) => {
     const objResp = {
       status: "error",
       message: "db error",
-      data: err,
+      data: sanitizeError(err),
     };
     res.status(400).send(objResp);
   }
-
-  // if (!fs.existsSync(dir)) {
-  //   fs.mkdirSync(dir, { recursive: true });
-  // }
-  // req.folder = dir;
-
-  // try {
-  //   await uploadfileDatos(req, res);
-
-  //   if (req.files === undefined) {
-  //     /// en caso de que no se este subiendo archivos del modo adecuado
-  //     let objResp = {
-  //       status: "error",
-  //       message: "Please upload a file!",
-  //       data: "",
-  //     };
-  //     return res.status(400).send(objResp);
-  //   } else {
-  //     /// parseando datos que vengan como json dentro de form-data    ############################################
-  //     console.log(req.body.data);
-  //     const data = JSON.parse(req.body.data);
-  //     console.log(data.name);
-  //     const url = `http://${ipServer}:8050/files/${req.database}/${collection}/${req.params._id}/${req.files.file[0].filename}`;
-  //     const newProperty = {
-  //       [data.name]: {
-  //         url: url,
-  //         path: req.files.file[0].path,
-  //       },
-  //     };
-
-  //     /// actualizar nuevos datos de rek y la nueva carpeta de trabajadores    ############################################
-  //     const updated = await MongoWraper.UpdateMongoBy_id(
-  //       req.params._id,
-  //       newProperty,
-  //       collection,
-  //       req.database
-  //     ).catch((err) => {
-  //       const objResp = {
-  //         status: "error",
-  //         message: "db error",
-  //         data: err,
-  //       };
-  //       res.status(400).send(objResp);
-  //     });
-
-  //     const objResp = {
-  //       status: "ok",
-  //       message: "completed",
-  //       data: updated.result,
-  //     };
-  //     res.status(200).send(objResp);
-  //   }
-  // } catch (err) {
-  //   /// en aso de que ocurra algun error en la subida de los archivos   ############################################
-  //   console.log(err);
-  //   const objResp = {
-  //     status: "error",
-  //     data: err,
-  //   };
-  //   if (err.code == "LIMIT_FILE_SIZE") {
-  //     objResp.message = "File size cannot be larger than 50MB!";
-  //     return res.status(400).send(objResp);
-  //   }
-  //   objResp.message = `Could not upload the file. ${err}`;
-  //   return res.status(400).send(objResp);
-  // }
 };
 
 const removePropertyId = (params) => async (req, res, next) => {
@@ -1856,18 +1314,10 @@ const fileUpload = (params) => async (req, res, next) => {
   const propertyNameFile = PropertyNameFile ? PropertyNameFile : "documentos";
   const db = Database ? Database : req.database;
 
-  const dir = `${PathBaseFile}/${db}/tmp/`;
-  //   const collection = req.originalUrl.match
-  //   const collection = req.originalUrl.match(re)[0];
-  console.log("uploading files... " + collection);
-  //   const dir = __basedir + "/files/" + req.database + "/tmp/";
-
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  req.folder = dir;
-
   try {
+    const dir = `${PathBaseFile}/${db}/tmp/`;
+    await fs.promises.mkdir(dir, { recursive: true });
+    req.folder = dir;
     const DocumentUpload = await MongoWraper.FindIDOne(
       req.params._id,
       collection,
@@ -1881,7 +1331,6 @@ const fileUpload = (params) => async (req, res, next) => {
         message: "_id no econtrado",
         data: {},
       };
-      console.log(objResp);
       return res.status(400).send(objResp);
     }
 
@@ -1900,7 +1349,7 @@ const fileUpload = (params) => async (req, res, next) => {
     //   const dirDestino = `${__basedir}/files/${req.database}/${collection}/${req.params._id}/`;
 
     const BodyParsed = JSON.parse(JSON.stringify(req.body));
-    const docTopush = DoctObjBuilder(
+    const docTopush = await DoctObjBuilder(
       req.files,
       URL,
       PathBaseFile,
@@ -1924,14 +1373,7 @@ const fileUpload = (params) => async (req, res, next) => {
       docTopush,
       collection,
       db,
-    ).catch((err) => {
-      const objResp = {
-        status: "error",
-        message: "db error",
-        data: err,
-      };
-      res.status(400).send(objResp);
-    });
+    );
 
     const FinalObject = await MongoWraper.FindIDOne(
       req.params._id,
@@ -1952,11 +1394,10 @@ const fileUpload = (params) => async (req, res, next) => {
     }
     res.status(200).send(objResp);
   } catch (err) {
-    /// en aso de que ocurra algun error en la subida de los archivos   ############################################
-    console.log(err);
+    console.error("Error in file operation:", err);
     const objResp = {
       status: "error",
-      data: err,
+      data: sanitizeError(err),
     };
     if (err.code == "LIMIT_FILE_SIZE") {
       objResp.message = "File size cannot be larger than 50MB!";
@@ -1967,7 +1408,7 @@ const fileUpload = (params) => async (req, res, next) => {
   }
 };
 
-const DoctObjBuilder = (
+const DoctObjBuilder = async (
   files,
   URL,
   PathBaseFile,
@@ -1977,56 +1418,38 @@ const DoctObjBuilder = (
   bodyParsed,
 ) => {
   const dirDestino = `${PathBaseFile}/${db}/${collection}/${id}/`;
+  await fs.promises.mkdir(dirDestino, { recursive: true });
+  const acum = {};
 
-  // const docTopush = {
-  //   [propertyNameFile]: {
-  //     $each: DocsArr,
-  //   },
-  // };
-  return files.reduce((acum, file) => {
+  for (const file of files) {
     const pathDestino = dirDestino + file.filename;
-    if (!fs.existsSync(dirDestino)) {
-      fs.mkdirSync(dirDestino, { recursive: true });
-    }
-    fs.renameSync(file.path, pathDestino);
-    var filebody = {};
-    var keyName = "documentos";
+    await fs.promises.rename(file.path, pathDestino);
+
+    let filebody = {};
+    let keyName = "documentos";
     if (bodyParsed.hasOwnProperty("data_" + file.fieldname)) {
       filebody = JSON.parse(bodyParsed["data_" + file.fieldname]);
       if (filebody.hasOwnProperty("keyName")) {
         keyName = filebody.keyName;
       }
-
       delete filebody.keyName;
     }
+
+    const fileEntry = {
+      file: `${URL}/${db}/${collection}/${id}/${file.filename}`,
+      filepath: pathDestino,
+      datetime: new Date(),
+      ...filebody,
+    };
+
     if (acum.hasOwnProperty(keyName)) {
-      const ActualData = acum[keyName]["$each"];
-      acum[keyName] = {
-        $each: [
-          ...ActualData,
-          {
-            file: `${URL}/${db}/${collection}/${id}/${file.filename}`,
-            filepath: pathDestino,
-            datetime: new Date(),
-            ...filebody,
-          },
-        ],
-      };
-      console.log(acum);
+      acum[keyName]["$each"].push(fileEntry);
     } else {
-      acum[keyName] = {
-        $each: [
-          {
-            file: `${URL}/${db}/${collection}/${id}/${file.filename}`,
-            filepath: pathDestino,
-            datetime: new Date(),
-            ...filebody,
-          },
-        ],
-      };
+      acum[keyName] = { $each: [fileEntry] };
     }
-    return acum;
-  }, {});
+  }
+
+  return acum;
 
   // {
   //   //   file: `${ipServer}/api/v1/rules/fs/files/${req.database}/${collection}/${req.params._id}/${req.files.file[0].filename}`,
@@ -2052,17 +1475,12 @@ const uploadAdd = (params) => async (req, res, next) => {
   const propertyNameFile = PropertyNameFile ? PropertyNameFile : "documentos";
 
   const db = Database ? Database : req.database;
-  //   const collection = req.originalUrl.match
-  //   const collection = req.originalUrl.match(re)[0];
-  console.log("uploading files... " + collection);
-  //   const dir = __basedir + "/files/" + req.database + "/tmp/";
-  const dir = `${PathBaseFile}/${db}/tmp/`;
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  req.folder = dir;
 
   try {
+    const dir = `${PathBaseFile}/${db}/tmp/`;
+    await fs.promises.mkdir(dir, { recursive: true });
+    req.folder = dir;
+
     const docSubcontratista = await MongoWraper.FindIDOne(
       req.params._id,
       collection,
@@ -2076,7 +1494,6 @@ const uploadAdd = (params) => async (req, res, next) => {
         message: "_id no econtrado",
         data: {},
       };
-      console.log(objResp);
       return res.status(400).send(objResp);
     }
 
@@ -2091,16 +1508,11 @@ const uploadAdd = (params) => async (req, res, next) => {
       };
       return res.status(400).send(objResp);
     } else {
-      // // moviendo archivo de temporal a la carpeta trabajador     ############################################
-      //   const dirDestino = `${__basedir}/files/${req.database}/${collection}/${req.params._id}/`;
       const dirDestino = `${PathBaseFile}/${db}/${collection}/${req.params._id}/`;
       const pathDestino = dirDestino + req.files.file[0].filename;
-      if (!fs.existsSync(dirDestino)) {
-        fs.mkdirSync(dirDestino, { recursive: true });
-      }
-      fs.renameSync(req.files.file[0].path, pathDestino);
+      await fs.promises.mkdir(dirDestino, { recursive: true });
+      await fs.promises.rename(req.files.file[0].path, pathDestino);
 
-      /// parseando datos que vengan como json dentro de form-data    ############################################
       const body = JSON.parse(req.body.data);
       const docTopush = {
         [propertyNameFile]: {
@@ -2112,22 +1524,14 @@ const uploadAdd = (params) => async (req, res, next) => {
         },
       };
 
-      /// actualizar nuevos datos de rek y la nueva carpeta de trabajadores    ############################################
       await MongoWraper.UpdateMongoBy_idPush(
         req.params._id,
         docTopush,
         collection,
         db,
-      ).catch((err) => {
-        const objResp = {
-          status: "error",
-          message: "db error",
-          data: err,
-        };
-        res.status(400).send(objResp);
-      });
+      );
 
-      docSubcontratista2 = await MongoWraper.FindIDOne(
+      const docSubcontratista2 = await MongoWraper.FindIDOne(
         req.params._id,
         collection,
         db,
@@ -2147,11 +1551,10 @@ const uploadAdd = (params) => async (req, res, next) => {
       res.status(200).send(objResp);
     }
   } catch (err) {
-    /// en aso de que ocurra algun error en la subida de los archivos   ############################################
-    console.log(err);
+    console.error("Error in file operation:", err);
     const objResp = {
       status: "error",
-      data: err,
+      data: sanitizeError(err),
     };
     if (err.code == "LIMIT_FILE_SIZE") {
       objResp.message = "File size cannot be larger than 50MB!";
@@ -2168,17 +1571,12 @@ const uploadPatch = (params) => async (req, res, next) => {
   const { Database, Collection, PathBaseFile, URL, Middleware } = params;
   const collection = Collection ? Collection : req.originalUrl.match(re)[0];
   const db = Database ? Database : req.database;
-  //   const collection = req.originalUrl.match(re)[0];
-
-  console.log("Updating files... " + collection);
-  const dir = `${PathBaseFile}/${req.database}/tmp/`;
-  //   const dir = __basedir + "/files/" + req.database + "/tmp/";
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  req.folder = dir;
 
   try {
+    const dir = `${PathBaseFile}/${db}/tmp/`;
+    await fs.promises.mkdir(dir, { recursive: true });
+    req.folder = dir;
+
     const docSubcontratista = await MongoWraper.FindIDOne(
       req.params._id,
       collection,
@@ -2192,7 +1590,6 @@ const uploadPatch = (params) => async (req, res, next) => {
         message: "_id del trabajador no econtrado",
         data: {},
       };
-      console.log(objResp);
       return res.status(400).send(objResp);
     }
 
@@ -2211,40 +1608,26 @@ const uploadPatch = (params) => async (req, res, next) => {
       const existeAlguno = docSubcontratista.documentos.filter((carga) =>
         carga.filename === body.filename ? carga : null,
       );
-      if (existeAlguno) {
-        // // moviendo archivo de temporal a la carpeta trabajador     ############################################
-        // const dirDestino = `${__basedir}/files/${db}/${collection}/${req.params._id}/`;
-        // `${__basedir}/files/${req.database}/${collection}/${req.params._id}/`;
+      if (existeAlguno.length > 0) {
         const dirDestino = `${PathBaseFile}/${db}/${collection}/${req.params._id}/`;
         const pathDestino = dirDestino + req.files.file[0].filename;
-        fs.renameSync(req.files.file[0].path, pathDestino);
+        await fs.promises.rename(req.files.file[0].path, pathDestino);
 
-        console.log(existeAlguno[0].filepath);
-        /// borrando archivo del viejo registro
-        fs.unlinkSync(existeAlguno[0].filepath);
+        await fs.promises.unlink(existeAlguno[0].filepath);
 
-        // body.file = `${ipServer}/api/v1/rules/fs/files/${db}/${collection}/${req.params._id}/${req.files.file[0].filename}`;
-        body.file = `${URL}/${collection}/${req.params._id}/${req.files.file[0].filename}`;
+        body.file = `${URL}/${db}/${collection}/${req.params._id}/${req.files.file[0].filename}`;
         body.filepath = pathDestino;
         const cargas = docSubcontratista.documentos.map((carga) =>
           carga.filename === body.filename ? body : carga,
         );
         docSubcontratista.documentos = cargas;
 
-        /// actualizar nuevos datos de rek y la nueva carpeta de trabajadores    ############################################
         await MongoWraper.UpdateMongoBy_id(
           req.params._id,
           docSubcontratista,
           collection,
           db,
-        ).catch((err) => {
-          const objResp = {
-            status: "error",
-            message: "db error",
-            data: err,
-          };
-          res.status(400).send(objResp);
-        });
+        );
 
         const objResp = {
           status: "ok",
@@ -2266,11 +1649,10 @@ const uploadPatch = (params) => async (req, res, next) => {
       }
     }
   } catch (err) {
-    /// en aso de que ocurra algun error en la subida de los archivos   ############################################
-    console.log(err);
+    console.error("Error in file operation:", err);
     const objResp = {
       status: "error",
-      data: err,
+      data: sanitizeError(err),
     };
     if (err.code == "LIMIT_FILE_SIZE") {
       objResp.message = "File size cannot be larger than 50MB!";
@@ -2287,50 +1669,40 @@ const uploadRemove = (params) => async (req, res, next) => {
   const { Database, Collection, PathBaseFile, URL, Middleware } = params;
   const collection = Collection ? Collection : req.originalUrl.match(re)[0];
   const db = Database ? Database : req.database;
-  //   const collection = req.originalUrl.match(re)[0];
-  console.log("upload Remove... " + collection);
+
   try {
     const docSubcontratista = await MongoWraper.FindIDOne(
       req.params._id,
       collection,
       db,
-    ).catch((err) => {
-      return null;
-    });
+    ).catch(() => null);
 
-    const newDocuments = docSubcontratista.documentos.filter((doc) => {
+    if (docSubcontratista == null) {
+      return res.status(400).send({ status: "error", message: "_id not found", data: {} });
+    }
+
+    const docsToKeep = [];
+    for (const doc of docSubcontratista.documentos) {
       if (doc.filename === req.body.filename) {
-        /// en caso de que exista eliminar el registro no terornando nada y elimnando la foto
-        console.log("eliminando documento:");
-        console.log(doc);
-        if (fs.existsSync(doc.filepath)) {
-          console.log("si existe");
-          fs.unlinkSync(doc.filepath);
-        }
-      } else return doc;
-    });
-    docSubcontratista.documentos = newDocuments;
+        await fs.promises.unlink(doc.filepath).catch(() => {});
+      } else {
+        docsToKeep.push(doc);
+      }
+    }
+    docSubcontratista.documentos = docsToKeep;
     delete docSubcontratista._id;
-    console.log(docSubcontratista);
 
     await MongoWraper.UpdateMongoBy_id(
       req.params._id,
       docSubcontratista,
       collection,
       db,
-    ).catch((err) => {
-      const objResp = {
-        status: "error",
-        message: "db error",
-        data: err,
-      };
-      res.status(400).send(objResp);
-    });
+    );
 
     const objResp = {
       status: "ok",
       message: "completed",
-      data: newDocuments,
+      data: docsToKeep,
     };
     if (Middleware) {
       req.MidResponse = objResp;
@@ -2341,37 +1713,10 @@ const uploadRemove = (params) => async (req, res, next) => {
     const objResp = {
       status: "error",
       message: "db error",
-      data: err,
+      data: sanitizeError(err),
     };
     res.status(400).send(objResp);
   }
-};
-
-const QueryGenericComparisonGenerator = (req, operator) => {
-  const QueriesBuilder = Object.keys(req.query)
-    .filter((e) => e.includes("_i" + operator + "i"))
-    .map((e) => {
-      return {
-        Property: e.replace("_i" + operator + "i", ""),
-        Search: parseInt(req.query[e]),
-      };
-    });
-  return QueriesBuilder.map((e) =>
-    GetGenericComparisonQuery(e, "$" + operator),
-  );
-};
-
-const QueryGenericComparisonGeneratorDate = (req, operator) => {
-  const QueriesBuilder = Object.keys(req.query)
-    .filter((e) => e.includes("_d" + operator + "d"))
-    .map((e) => {
-      return {
-        Property: e.replace("_d" + operator + "d", ""),
-        Search: req.query[e],
-      };
-    });
-  console.log("req", req.query);
-  return QueriesBuilder.map((e) => GetDateComparisonQuery(e, "$" + operator));
 };
 
 const pullIdFromArrayManagementDB = (params) => async (req, res, next) => {
@@ -2383,10 +1728,14 @@ const pullIdFromArrayManagementDB = (params) => async (req, res, next) => {
   //   const db = "managementdb";
   //   const collection = req.body.Collection;
 
-  const Query = { [req.body.Match.Name]: ObjectId(req.body.Match.Value) };
+  const matchOid = safeObjectId(req.body.Match.Value);
+  if (matchOid === null) {
+    return res.status(400).send({ status: "error", message: "invalid Match.Value ObjectId", data: {} });
+  }
+  const Query = { [req.body.Match.Name]: matchOid };
   const ItemsToRemove = {
     [req.body.ItemsToRemove.Name]: {
-      $in: req.body.ItemsToRemove.Values.map((e) => ObjectId(e)),
+      $in: req.body.ItemsToRemove.Values.map((e) => safeObjectId(e)).filter(Boolean),
     },
   };
   const Result = await MongoWraper.UpdateMongoManyPull(
